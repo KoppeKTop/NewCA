@@ -285,6 +285,7 @@ runCA( int argc, char** argv)
         //     standart_pitch, dim_len.y, cudaMemcpyDeviceToHost));
         cutilSafeCall(cudaMemcpy(h_odata, d_odata, mem_size, cudaMemcpyDeviceToHost));
         cutilCheckMsg("Wrong copy d_odata");
+        printf("Odd\n");
     #endif
     #ifdef _MEM_DEBUG        
         cutilSafeCall(cudaMemcpy(h_error, d_error, err_sz, cudaMemcpyDeviceToHost));

@@ -44,7 +44,7 @@ extern "C" int save_bmp(const ElementType * fld, const Coord sz, const char * fi
 			}
 			else
 			{
-				fprintf(stderr, "Wrong label to draw!\n");
+				fprintf(stderr, "Wrong label to draw: %u!\n", lbl);
 			}
 		}
 	}
