@@ -2,5 +2,5 @@
 *.o
 *.bmp
 *.dmp
-*.txt
+log*.txt
 
