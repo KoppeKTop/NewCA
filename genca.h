@@ -27,5 +27,7 @@ typedef unsigned int RandomType;
 
 //#define _MEM_DEBUG
 //#define M_DEBUG
+#define VERBOSE
+
 
 #endif // #ifndef _GENCA_H_
