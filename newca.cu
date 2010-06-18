@@ -96,6 +96,11 @@ runCA( int argc, char** argv)
     str_buf[0] = '\0';
     
     printf("Device %d\n", params->device);
+    #ifdef _DEBUG
+    int deviceCount;                                                         \
+    CUDA_SAFE_CALL_NO_SYNC(cudaGetDeviceCount(&deviceCount));
+    printf("Device cnt = %d\n", deviceCount);
+    #endif
 	char * dev_str = new char [255];
 	sprintf(dev_str, "-device=%d", params->device);
 	// delete [] argv[1];
@@ -255,8 +260,15 @@ runCA( int argc, char** argv)
     cutilSafeCall( cudaMalloc((void **) &d_error, err_sz));
     cutilSafeCall( cudaMemcpy( d_error, h_error, err_sz, cudaMemcpyHostToDevice) );
   #endif
+  #ifdef VERBOSE
+    Log(params, "Start Iterations\n");
+  #endif
     for (int i = 0; i < params->max_iter; ++i)
     {
+      #ifdef VERBOSE
+        sprintf(str_buf, "Iteration %i\n", i);
+        Log(params, str_buf);
+      #endif
         //cudaBindTexture2D(0, &tex, d_idata, &sys_channel_desc, dim_len.x, dim_len.y, pitched_sz);
 	#ifndef GPU_RAND
         generate_rnd(h_random, random_elements);
@@ -270,12 +282,17 @@ runCA( int argc, char** argv)
         //cutilSafeCall(cudaMemset2D	(	d_odata, pitched_sz, 0xBB, standart_pitch, dim_len.x));
         cutilSafeCall(cudaMemset(d_odata, 0xBB, mem_size));
 	//#endif
+      #ifdef VERBOSE
+        Log(params, "Even step... ");
+      #endif
         caKernel<<< grid, threads >>>( d_idata, d_rotability_even, weights, 
       #ifdef _MEM_DEBUG
                                        d_error,
       #endif
                                        dim_len, 0, d_random, d_odata);
-        
+        #ifdef VERBOSE
+        Log(params, "OK.\n");
+        #endif
         // check if kernel execution generated and error
         cudaThreadSynchronize();
         cutilCheckMsg("Kernel execution failed");
@@ -309,13 +326,17 @@ runCA( int argc, char** argv)
         //cutilSafeCall(cudaMemset2D	(	d_idata, pitched_sz, 0xBB, standart_pitch, dim_len.x));
         cutilSafeCall(cudaMemset(d_idata, 0xBB, mem_size));
 	//#endif
-        
+        #ifdef VERBOSE
+        Log(params, "Odd step... ");
+        #endif
         caKernel <<< grid, threads >>>( d_odata, d_rotability_odd, weights, 
       #ifdef _MEM_DEBUG
                                         d_error,
       #endif
                                         dim_len, 1, d_random, d_idata);
-    
+        #ifdef VERBOSE
+        Log(params, "OK.\n");
+        #endif
         // check if kernel execution generated and error
         cudaThreadSynchronize();
         cutilCheckMsg("Kernel execution failed");
@@ -339,6 +360,9 @@ runCA( int argc, char** argv)
 	#endif
         if ((i+1) % params->count_every == 0)
         {
+              #ifdef VERBOSE
+                Log(params, "Count stat... ");
+              #endif
                 cutilSafeCall(cudaMemcpy(h_odata, d_idata, mem_size, cudaMemcpyDeviceToHost));
                 cutilCheckMsg("Wrong copy d_idata");
 		if (params->save_bmp)
@@ -350,8 +374,14 @@ runCA( int argc, char** argv)
         	sprintf(str_buf, "%i\t%i\n", (i+1), cnt);
         	Log(params, str_buf);
         	printf("%s", str_buf);
-			save_dump(params, h_odata);
+		save_dump(params, h_odata);
+              #ifdef VERBOSE
+                Log(params, "OK.\n");
+              #endif
         }
+        #ifdef VERBOSE
+        Log(params, "Iteration done\n");
+        #endif
     }
 	
     delete [] filename;
