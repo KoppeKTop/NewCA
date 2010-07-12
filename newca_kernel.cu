@@ -173,11 +173,11 @@ float rnd)
 #if (DIMS == 2)
 __global__ void
 //caKernel( ElementType* g_insys, RotationType * g_rotability, dim3 dim_len, int odd, float* g_rand, ElementType* g_nsys, size_t sys_pitch) 
-caKernel( ElementType* g_insys, RotationType * g_rotability, float * weights,
+caKernel( const ElementType* g_insys, const RotationType * g_rotability, const float * weights,
 #ifdef _MEM_DEBUG
 int * error,
 #endif
-dim3 dim_len, int odd, RandomType* g_rand, ElementType* g_nsys) 
+const dim3 dim_len, const int odd, const RandomType* g_rand, RandomType * g_new_rand, ElementType* g_nsys) 
 {
   // 0. Compute block variables: number et al
   int topX,topY;
@@ -359,7 +359,7 @@ dim3 dim_len, int odd, RandomType* g_rand, ElementType* g_nsys)
     // 3. choose random rotation
     RandomType rnd = g_rand[block_num];
     #ifdef GPU_RAND
-    g_rand[block_num] = randGPU(rnd);
+    g_new_rand[block_num] = randGPU(rnd);
     #endif
     choosen_rot = chooseRot(energies, 
 #ifdef _MEM_DEBUG

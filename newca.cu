@@ -26,7 +26,7 @@
 void runCA( int argc, char** argv);
 int GetDrugCount(t_params * params, ElementType * fld);
 dim3 GetDims(t_params * params);
-void CountAround(t_params * params, ElementType * fld, const CoordVec * neight_map, int x, int y, int z, CoordVec * point_list);
+void CountAround(t_params * params, ElementType * fld, const CoordVec * neight_map, const Coord & centre, CoordVec * point_list);
 void Log(t_params * params, char * str);
 void ClearLog(t_params * params);
 void PrintParams(t_params * params);
@@ -67,6 +67,94 @@ void cp_rnd_dev(const RandomType * rnd, RandomType * dev_rnd, size_t mem_sz)
 {
 	cutilSafeCall( cudaMemcpy( dev_rnd, rnd, mem_sz,
                                 cudaMemcpyHostToDevice) );
+}
+
+template < typename T >
+void unidump(const T * d_data, size_t elements_cnt, const char * filename_prefix, const int file_counter)
+{
+	T * h_data = 0;
+	size_t mem_size = elements_cnt*sizeof(T);
+	h_data = new T[elements_cnt];
+	cudaMemcpy(h_data, d_data, mem_size, cudaMemcpyDeviceToHost);
+        //cutilCheckMsg("Wrong copy d_data");
+
+	char * filename = new char[256];
+	sprintf(filename, "%s_%d.dmp", filename_prefix, file_counter);
+	FILE * out = fopen(filename, "w");
+	if (out == NULL) {
+		fprintf(stderr, "Can t open file %s to dump\n", filename);
+		return;
+	}
+	fwrite(h_data, sizeof(T), elements_cnt, out);
+	fclose(out);
+
+	delete [] h_data;
+	delete [] filename;
+}
+
+void dump_all(const t_params * params, const ElementType * d_cells, const RandomType * d_rand, 
+		const RotationType * d_rot, const float * d_weights)
+// function must dump all data
+{
+	const int history_len = 100; // rotate logs every 10 staps
+	static int counter = 0;
+	// dump cells
+	unidump(d_cells, params->n*params->n, "cells", counter);
+	// random
+	unidump(d_rand, params->n*params->n/4, "rand", counter);
+	// rotate info
+	unidump(d_rot, params->n*params->n/4, "rot", counter);
+	// weights
+	unidump(d_weights, LABEL_LAST*LABEL_LAST, "weights", counter);
+	
+	counter = (counter + 1) % history_len;
+}
+
+void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementType * d_idata, 
+		  RotationType * d_rot, float * weights, 
+             #ifdef _MEM_DEBUG
+                  int * error,
+             #endif
+                  dim3 & dim_len, int odd, RandomType * g_rand, RandomType * g_new_rand, ElementType* d_odata) 
+{
+	// start kernel N times and if it stops by watchdog - restart it...
+	bool res = false;
+	int max_restart = 10;
+	int restart_cnt = 0;
+	size_t random_elements = dim_len.x*dim_len.y/4;
+	size_t random_mem_size = random_elements*sizeof(RandomType);
+	RandomType * h_random = (RandomType*) malloc(random_mem_size);
+	while(restart_cnt < max_restart)
+	{
+		caKernel<<< grid, threads >>>( d_idata, d_rot, weights, 
+	#ifdef _MEM_DEBUG
+                                       error,
+	#endif
+                                       dim_len, odd, g_rand, g_new_rand, d_odata);
+	#ifndef GPU_RAND
+                generate_rnd(h_random, random_elements);
+                cp_rnd_dev(h_random, g_new_rand, random_mem_size);
+	#endif
+		cudaThreadSynchronize();
+		cudaError_t err = cudaGetLastError();
+		if ( cudaSuccess == err) {
+			// it's OK - exiting
+			res = true;
+			break;
+		}
+		dump_all(params, d_idata, g_rand, d_rot, weights);
+		if ( cudaErrorLaunchTimeout != err ) {
+			fprintf(stderr, "Kernel execution failed: %s\n", cudaGetErrorString(err) );
+			exit(-1);
+		}
+		fprintf(stderr, "Restarting...\n");
+		restart_cnt++;
+	}
+	free(h_random);
+	if ( res == false) {
+		fprintf(stderr, "Can't launch kernel...\n");
+		exit(-1);
+	}
 }
 
 void
@@ -194,7 +282,9 @@ runCA( int argc, char** argv)
     cutilSafeCall(cudaMalloc((void **) &d_idata, mem_size));
     
     RandomType * d_random = 0;
+    RandomType * d_random2 = 0;
     cutilSafeCall( cudaMalloc( (void**) &d_random, random_mem_size));
+    cutilSafeCall( cudaMalloc( (void**) &d_random2, random_mem_size));
     cp_rnd_dev(h_random, d_random, random_mem_size);
     
     RotationType * d_rotability_even = 0;
@@ -263,6 +353,10 @@ runCA( int argc, char** argv)
   #ifdef VERBOSE
     Log(params, "Start Iterations\n");
   #endif
+  #ifndef GPU_RAND
+    generate_rnd(h_random, random_elements);
+    cp_rnd_dev(h_random, d_random, random_mem_size);
+  #endif
     for (int i = 0; i < params->max_iter; ++i)
     {
       #ifdef VERBOSE
@@ -270,10 +364,6 @@ runCA( int argc, char** argv)
         Log(params, str_buf);
       #endif
         //cudaBindTexture2D(0, &tex, d_idata, &sys_channel_desc, dim_len.x, dim_len.y, pitched_sz);
-	#ifndef GPU_RAND
-        generate_rnd(h_random, random_elements);
-        cp_rnd_dev(h_random, d_random, random_mem_size);
-	#endif
         
         cudaThreadSynchronize();
         cutilCheckMsg("Bind failed");
@@ -282,21 +372,22 @@ runCA( int argc, char** argv)
         //cutilSafeCall(cudaMemset2D	(	d_odata, pitched_sz, 0xBB, standart_pitch, dim_len.x));
         cutilSafeCall(cudaMemset(d_odata, 0xBB, mem_size));
 	//#endif
+      #ifdef DUMP_ALL
+	dump_all(params, d_idata, d_random, d_rotability_even, weights);
+      #endif
       #ifdef VERBOSE
         Log(params, "Even step... ");
       #endif
-        caKernel<<< grid, threads >>>( d_idata, d_rotability_even, weights, 
-      #ifdef _MEM_DEBUG
-                                       d_error,
-      #endif
-                                       dim_len, 0, d_random, d_odata);
+	start_kernel(params, grid, threads, d_idata, 
+			d_rotability_even, weights, 
+             #ifdef _MEM_DEBUG
+                  d_error,
+             #endif
+                  dim_len, 0, d_random, d_random2, d_odata);
+
         #ifdef VERBOSE
         Log(params, "OK.\n");
-        #endif
-        // check if kernel execution generated and error
-        cudaThreadSynchronize();
-        cutilCheckMsg("Kernel execution failed");
-        
+        #endif        
     #ifdef _DBL_CP_DEBUG
         //cutilSafeCall(cudaMemcpy2D(h_odata, standart_pitch, d_odata, pitched_sz, 
         //     standart_pitch, dim_len.y, cudaMemcpyDeviceToHost));
@@ -314,10 +405,6 @@ runCA( int argc, char** argv)
         }
 	#endif
         
-	#ifndef GPU_RAND
-        generate_rnd(h_random, random_elements);
-        cp_rnd_dev(h_random, d_random, random_mem_size);
-	#endif
         // cudaBindTexture2D(0, &tex, d_odata, &sys_channel_desc, dim_len.x, dim_len.y, pitched_sz);
         cudaThreadSynchronize();
         cutilCheckMsg("Bind failed");
@@ -326,20 +413,22 @@ runCA( int argc, char** argv)
         //cutilSafeCall(cudaMemset2D	(	d_idata, pitched_sz, 0xBB, standart_pitch, dim_len.x));
         cutilSafeCall(cudaMemset(d_idata, 0xBB, mem_size));
 	//#endif
-        #ifdef VERBOSE
-        Log(params, "Odd step... ");
-        #endif
-        caKernel <<< grid, threads >>>( d_odata, d_rotability_odd, weights, 
-      #ifdef _MEM_DEBUG
-                                        d_error,
+      #ifdef DUMP_ALL
+	dump_all(params, d_odata, d_random2, d_rotability_odd, weights);
       #endif
-                                        dim_len, 1, d_random, d_idata);
+      #ifdef VERBOSE
+        Log(params, "Odd step... ");
+      #endif
+	start_kernel(params, grid, threads, d_odata, 
+			d_rotability_odd, weights, 
+             #ifdef _MEM_DEBUG
+                  d_error,
+             #endif
+                  dim_len, 1, d_random2, d_random, d_idata);
+
         #ifdef VERBOSE
         Log(params, "OK.\n");
         #endif
-        // check if kernel execution generated and error
-        cudaThreadSynchronize();
-        cutilCheckMsg("Kernel execution failed");
     #ifdef _DBL_CP_DEBUG
         //cutilSafeCall(cudaMemcpy2D(h_odata, standart_pitch, d_idata, pitched_sz, 
         //     standart_pitch, dim_len.y, cudaMemcpyDeviceToHost));
@@ -365,15 +454,27 @@ runCA( int argc, char** argv)
               #endif
                 cutilSafeCall(cudaMemcpy(h_odata, d_idata, mem_size, cudaMemcpyDeviceToHost));
                 cutilCheckMsg("Wrong copy d_idata");
+              #ifdef VERBOSE
+                Log(params, "Copied. ");
+              #endif
 		if (params->save_bmp)
 		{
 		    sprintf(filename, "res_%d.bmp", (i+1));
         	    save_bmp(h_odata, Coord(dim_len.x, dim_len.y, dim_len.z), filename);
+              #ifdef VERBOSE
+                Log(params, "BMP OK. ");
+              #endif
         	}
         	int cnt = GetDrugCount(params, h_odata);
+              #ifdef VERBOSE
+                Log(params, "Counted. ");
+              #endif
         	sprintf(str_buf, "%i\t%i\n", (i+1), cnt);
         	Log(params, str_buf);
         	printf("%s", str_buf);
+              #ifdef VERBOSE
+                Log(params, "Saving... ");
+              #endif
 		save_dump(params, h_odata);
               #ifdef VERBOSE
                 Log(params, "OK.\n");
@@ -500,7 +601,7 @@ int GetDrugCount(t_params * params, ElementType * fld)
 		#endif
 			if (lbl == LABEL_AG)
             {
-				CountAround(params, fld, neight_map, i, j, k, point_list);
+				CountAround(params, fld, neight_map, Coord(i, j, k), point_list);
 			}
 		#if (DIMS ==3)
 			}
@@ -513,29 +614,39 @@ int GetDrugCount(t_params * params, ElementType * fld)
 	return res;
 }
 
-void CountAround(t_params * params, ElementType * fld, const CoordVec * neight_map, int x, int y, int z, CoordVec * point_list)
+bool isInRange(t_params * params, const Coord & c)
+{
+	bool res = true;
+	for (int i = 0; i < DIMS; ++i)
+	{
+		if (!(0 <= c.GetCoord(i) && c.GetCoord(i) < params->n))
+		{
+			res = false;
+			break;
+		}
+	} 
+	return res;
+}
+
+void CountAround(t_params * params, ElementType * fld, const CoordVec * neight_map, const Coord & centre, CoordVec * point_list)
 {
 	dim3 dim_len = GetDims(params);
 	for (int n = 0; n < neight_map->size(); ++n)
 	{
-		Coord curr_n = neight_map->at(n);
-		int i = curr_n.GetCoord(0);
-		int j = curr_n.GetCoord(1);
-		int k = 0;
+		Coord curr_n = centre + neight_map->at(n);
+		if (! isInRange(params, curr_n)) continue;
 		ElementType lbl;
 	#if (DIMS == 2)
-		lbl = fld[COORD_TO_ABS(x+i, y+j)];
+		lbl = fld[COORD_TO_ABS(curr_n.GetCoord(0), curr_n.GetCoord(1))];
 	#else
-		k = curr_n.GetCoord(2);
-		lbl = fld[COORD_TO_ABS(x+i, y+j, z+k)];
+		lbl = fld[COORD_TO_ABS(curr_n.GetCoord(0), curr_n.GetCoord(1), curr_n.GetCoord(2))];
 	#endif
 		if (lbl == LABEL_DRUG)
 		{
-			Coord c(x + i, y + j, z + k);
-			if (find(point_list->begin(), point_list->end(), c) == point_list->end())
+			if (find(point_list->begin(), point_list->end(), curr_n) == point_list->end())
 			{
-				point_list->push_back(c);
-				CountAround(params, fld, neight_map, x + i, y + j, z + k, point_list);
+				point_list->push_back(curr_n);
+				CountAround(params, fld, neight_map, curr_n, point_list);
 			}
 		}
 	}

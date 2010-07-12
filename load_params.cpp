@@ -467,8 +467,8 @@ extern "C" void get_rotation_maps(CellsField * fld, RotationType * even, Rotatio
     {
         for (int y = 0; y < sz.GetCoord(1); y+=2)
         {
-            bool curr_rotablility_even = true;
-            bool curr_rotablility_odd = true;
+            int curr_rotablility_even = 1;
+            int curr_rotablility_odd = 1;
             for (int dx = 0; dx < 2; ++dx)
             {
                 for (int dy = 0; dy < 2; ++dy)
@@ -476,12 +476,12 @@ extern "C" void get_rotation_maps(CellsField * fld, RotationType * even, Rotatio
                 	ElementType lbl_even = fld->GetElementVal(Coord(x+dx, y+dy));
                     if (lbl_even == LABEL_AG)
                     {
-                        curr_rotablility_even = false;
+                        curr_rotablility_even = 0;
                     }
                     ElementType lbl_odd = fld->GetElementVal(Coord((x+dx+1)%sz.GetCoord(0),(y+dy+1)%sz.GetCoord(1)));
                     if (lbl_odd == LABEL_AG)
                     {
-                        curr_rotablility_odd = false;
+                        curr_rotablility_odd = 0;
                     }
                 }
             }

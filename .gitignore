@@ -4,4 +4,5 @@
 *.dmp
 log*.txt
 *~
-
+*.ini
+*.sh
