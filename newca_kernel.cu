@@ -357,15 +357,17 @@ const dim3 dim_len, const int odd, const RandomType* g_rand, RandomType * g_new_
     }
     
     // 3. choose random rotation
+    #ifndef GPU_RAND
     RandomType rnd = g_rand[block_num];
-    #ifdef GPU_RAND
-    g_new_rand[block_num] = randGPU(rnd);
+    #else
+    RandomType rnd = randGPU(block_num);
+    //g_new_rand[block_num] = randGPU(rnd);
     #endif
     choosen_rot = chooseRot(energies, 
 #ifdef _MEM_DEBUG
                             error, 
 #endif
-                            (float)rnd/MY_RAND_MAX);
+                            ((float)rnd+1.0f)/MY_RAND_MAX);
     
     #ifdef __DEVICE_EMULATION__
     printf("Choosen %d\n", choosen_rot);

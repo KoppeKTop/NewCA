@@ -23,7 +23,7 @@ typedef unsigned int RandomType;
 
 #define NEIGHS 2
 
-//#define GPU_RAND
+#define GPU_RAND
 
 //#define _MEM_DEBUG
 //#define M_DEBUG

@@ -19,7 +19,7 @@
 #include "newca_kernel.cu"
 #include "load_params.h"
 #include "FieldSaver.h"
-
+#include "rnd_gen.cu"
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
@@ -92,7 +92,7 @@ void unidump(const T * d_data, size_t elements_cnt, const char * filename_prefix
 	delete [] filename;
 }
 
-void dump_all(const t_params * params, const ElementType * d_cells, const RandomType * d_rand, 
+void dump_all(const t_params * params, const ElementType * d_cells, 
 		const RotationType * d_rot, const float * d_weights)
 // function must dump all data
 {
@@ -101,7 +101,7 @@ void dump_all(const t_params * params, const ElementType * d_cells, const Random
 	// dump cells
 	unidump(d_cells, params->n*params->n, "cells", counter);
 	// random
-	unidump(d_rand, params->n*params->n/4, "rand", counter);
+	// unidump(d_rand, params->n*params->n/4, "rand", counter);
 	// rotate info
 	unidump(d_rot, params->n*params->n/4, "rot", counter);
 	// weights
@@ -115,22 +115,32 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
              #ifdef _MEM_DEBUG
                   int * error,
              #endif
-                  dim3 & dim_len, int odd, RandomType * g_rand, RandomType * g_new_rand, ElementType* d_odata) 
+                  dim3 & dim_len, int odd, 
+	     #ifndef GPU_RAND
+	          RandomType * g_rand, RandomType * g_new_rand,
+	     #endif 
+		  ElementType* d_odata) 
 {
 	// start kernel N times and if it stops by watchdog - restart it...
 	bool res = false;
 	int max_restart = 10;
 	int restart_cnt = 0;
+        #ifndef GPU_RAND
 	size_t random_elements = dim_len.x*dim_len.y/4;
 	size_t random_mem_size = random_elements*sizeof(RandomType);
 	RandomType * h_random = (RandomType*) malloc(random_mem_size);
+        #endif
 	while(restart_cnt < max_restart)
 	{
 		caKernel<<< grid, threads >>>( d_idata, d_rot, weights, 
 	#ifdef _MEM_DEBUG
                                        error,
 	#endif
-                                       dim_len, odd, g_rand, g_new_rand, d_odata);
+                                       dim_len, odd,
+ 	#ifndef GPU_RAND
+				       g_rand, g_new_rand,
+	#endif 
+				       d_odata);
 	#ifndef GPU_RAND
                 generate_rnd(h_random, random_elements);
                 cp_rnd_dev(h_random, g_new_rand, random_mem_size);
@@ -150,7 +160,9 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
 		fprintf(stderr, "Restarting...\n");
 		restart_cnt++;
 	}
+	#ifndef GPU_RAND
 	free(h_random);
+	#endif
 	if ( res == false) {
 		fprintf(stderr, "Can't launch kernel...\n");
 		exit(-1);
@@ -160,7 +172,7 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
 void
 runCA( int argc, char** argv) 
 {
-    srand(time(NULL));
+    //srand(time(NULL));
     char * config_file = new char[256];
     
     if (argc != 2 || !file_exists(argv[1]))
@@ -209,9 +221,13 @@ runCA( int argc, char** argv)
     size_t rot_size = dim_len.x*dim_len.y*sizeof(RotationType)/4;
     
     // allocate host memory
+    #ifndef GPU_RAND
+    srand(time(NULL));
     RandomType * h_random = (RandomType*) malloc(random_mem_size);
     generate_rnd(h_random, random_elements);
-
+    #else
+    InitRandomGPU(time(NULL), random_elements);
+    #endif
     float * h_weights = (float*) malloc(weight_size);
     memset(h_weights, 0, weight_size);
     RotationType * h_rotability_even = (RotationType*) malloc(rot_size);
@@ -281,12 +297,14 @@ runCA( int argc, char** argv)
     ElementType * d_idata = 0;
     cutilSafeCall(cudaMalloc((void **) &d_idata, mem_size));
     
+    #ifndef GPU_RAND
     RandomType * d_random = 0;
     RandomType * d_random2 = 0;
     cutilSafeCall( cudaMalloc( (void**) &d_random, random_mem_size));
     cutilSafeCall( cudaMalloc( (void**) &d_random2, random_mem_size));
     cp_rnd_dev(h_random, d_random, random_mem_size);
-    
+    #endif
+
     RotationType * d_rotability_even = 0;
     cutilSafeCall( cudaMalloc( (void**) &d_rotability_even, rot_size));
     RotationType * d_rotability_odd = 0;
@@ -373,7 +391,7 @@ runCA( int argc, char** argv)
         cutilSafeCall(cudaMemset(d_odata, 0xBB, mem_size));
 	//#endif
       #ifdef DUMP_ALL
-	dump_all(params, d_idata, d_random, d_rotability_even, weights);
+	dump_all(params, d_idata, d_rotability_even, weights);
       #endif
       #ifdef VERBOSE
         Log(params, "Even step... ");
@@ -383,7 +401,11 @@ runCA( int argc, char** argv)
              #ifdef _MEM_DEBUG
                   d_error,
              #endif
-                  dim_len, 0, d_random, d_random2, d_odata);
+                  dim_len, 0,
+	     #ifndef GPU_RAND 
+		  d_random, d_random2,
+	     #endif
+		  d_odata);
 
         #ifdef VERBOSE
         Log(params, "OK.\n");
@@ -414,7 +436,7 @@ runCA( int argc, char** argv)
         cutilSafeCall(cudaMemset(d_idata, 0xBB, mem_size));
 	//#endif
       #ifdef DUMP_ALL
-	dump_all(params, d_odata, d_random2, d_rotability_odd, weights);
+	dump_all(params, d_odata,  d_rotability_odd, weights);
       #endif
       #ifdef VERBOSE
         Log(params, "Odd step... ");
@@ -424,7 +446,11 @@ runCA( int argc, char** argv)
              #ifdef _MEM_DEBUG
                   d_error,
              #endif
-                  dim_len, 1, d_random2, d_random, d_idata);
+                  dim_len, 1, 
+	     #ifndef GPU_RAND
+		  d_random2, d_random,
+	     #endif 
+		  d_idata);
 
         #ifdef VERBOSE
         Log(params, "OK.\n");
@@ -543,7 +569,9 @@ runCA( int argc, char** argv)
     // cleanup memory
     //free( h_idata);
     free( h_odata);
+    #ifndef GPU_RAND
     free( h_random);
+    #endif
     free( h_weights);
     free( h_rotability_even);
     free( h_rotability_odd);
