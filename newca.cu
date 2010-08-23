@@ -152,7 +152,7 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
 			res = true;
 			break;
 		}
-		dump_all(params, d_idata, g_rand, d_rot, weights);
+		dump_all(params, d_idata, d_rot, weights);
 		if ( cudaErrorLaunchTimeout != err ) {
 			fprintf(stderr, "Kernel execution failed: %s\n", cudaGetErrorString(err) );
 			exit(-1);
@@ -216,12 +216,12 @@ runCA( int argc, char** argv)
     
     size_t mem_size = dim_len.x*dim_len.y*sizeof(ElementType);
     size_t random_elements = dim_len.x*dim_len.y/4;
-    size_t random_mem_size = random_elements*sizeof(RandomType);
     size_t weight_size = LABEL_LAST*LABEL_LAST*sizeof(float);
     size_t rot_size = dim_len.x*dim_len.y*sizeof(RotationType)/4;
     
     // allocate host memory
     #ifndef GPU_RAND
+    size_t random_mem_size = random_elements*sizeof(RandomType);
     srand(time(NULL));
     RandomType * h_random = (RandomType*) malloc(random_mem_size);
     generate_rnd(h_random, random_elements);
@@ -578,9 +578,11 @@ runCA( int argc, char** argv)
 //    free( str_buf);
     
     delete [] str_buf;
-    
+    CleanRandomGPU();
     cutilSafeCall(cudaFree(d_idata));
+#ifndef GPU_RAND
     cutilSafeCall(cudaFree(d_random));
+#endif
     //cutilSafeCall(cudaFreeArray(d_weights));
     cutilSafeCall(cudaFree(d_rotability_even));
     cutilSafeCall(cudaFree(d_rotability_odd));

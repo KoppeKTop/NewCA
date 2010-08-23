@@ -177,7 +177,11 @@ caKernel( const ElementType* g_insys, const RotationType * g_rotability, const f
 #ifdef _MEM_DEBUG
 int * error,
 #endif
-const dim3 dim_len, const int odd, const RandomType* g_rand, RandomType * g_new_rand, ElementType* g_nsys) 
+const dim3 dim_len, const int odd, 
+#ifndef GPU_RAND
+const RandomType* g_rand, RandomType * g_new_rand,
+#endif 
+ElementType* g_nsys) 
 {
   // 0. Compute block variables: number et al
   int topX,topY;
@@ -371,7 +375,7 @@ const dim3 dim_len, const int odd, const RandomType* g_rand, RandomType * g_new_
     
     #ifdef __DEVICE_EMULATION__
     printf("Choosen %d\n", choosen_rot);
-    printf("Old rand: %u, New rand: %u\n", rnd, g_rand[block_num]);
+    printf("New rand: %u\n", rnd);
     #endif
       
   }

@@ -9,7 +9,7 @@
 #define MY_RAND_MAX MM
 #include "genca.h"
 
-int4 * states=0;
+__device__ uint4 * states=0;
 
 __device__ inline unsigned int lcg_rand(unsigned int& seed)
 {
@@ -17,14 +17,15 @@ __device__ inline unsigned int lcg_rand(unsigned int& seed)
     return seed;
 }
 
-__device__ inline unsigned int taus_rand_step(unsigned int& state, int S1, int S2, int S3, int M)
+__device__ inline unsigned int taus_rand_step(unsigned int& state, int S1, int S2, int S3, unsigned int M)
 {
     unsigned int b = (((state << S1) ^ state) >> S2);
     state = (((state & M) << S3) ^ b);
     return state;
 }
 
-__device__ unsigned int hybrid_taus(unsigned int4 & state)
+__device__ 
+inline unsigned int hybrid_taus (uint4 & state)
 {
     return 
         taus_rand_step(state.x, 13, 19, 12, 4294967294UL) ^
@@ -49,17 +50,22 @@ void InitRandomGPU(unsigned int seed, const size_t cnt)
 {
 	if (states == 0) return;
 	srand(seed);
-	int4 * buffer = new int4[cnt];
+	uint4 * buffer = new uint4[cnt];
 	for (size_t ind = 0; ind < cnt; ++ind) {
 	    buffer[ind].x = rand();
 	    buffer[ind].y = rand();
 	    buffer[ind].z = rand();
 	    buffer[ind].w = rand();
 	}
-	size_t rand_size = cnt*sizeof(int4);
+	size_t rand_size = cnt*sizeof(uint4);
 	cudaMalloc((void**)&states, rand_size);
-	cudaMemcpy(states, buffer, rand_size, cudaHostToDevice);
+	cudaMemcpy(states, buffer, rand_size, cudaMemcpyHostToDevice);
 	delete [] buffer;
+}
+
+void CleanRandomGPU()
+{
+    cudaFree(states);
 }
 
 #endif

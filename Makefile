@@ -34,7 +34,7 @@
 ################################################################################
 
 # Add source files here
-EXECUTABLE	:= newca
+EXECUTABLE	:= newca_rnd
 # CUDA source files (compiled with cudacc)
 CUFILES		:= newca.cu
 # CUDA dependency files
