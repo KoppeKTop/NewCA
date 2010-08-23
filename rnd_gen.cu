@@ -17,7 +17,7 @@ __device__ inline unsigned int lcg_rand(unsigned int& seed)
     return seed;
 }
 
-__device__ inline unsigned int taus_rand_step(unsigned int& state, int S1, int S2, int S3, int M)
+__device__ inline unsigned int taus_rand_step(unsigned int& state, int S1, int S2, int S3, unsigned int M)
 {
     unsigned int b = (((state << S1) ^ state) >> S2);
     state = (((state & M) << S3) ^ b);
