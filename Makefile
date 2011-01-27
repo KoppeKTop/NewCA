@@ -36,10 +36,10 @@
 # Add source files here
 EXECUTABLE	:= newca_rnd
 # CUDA source files (compiled with cudacc)
-CUFILES		:= newca.cu rnd_gen.cu
+CUFILES		:= newca.cu
 # CUDA dependency files
 CU_DEPS		:= \
-	newca_kernel.cu genca.h \
+	newca_kernel.cu genca.h rnd_gen.cu \
 
 # C/C++ source files (compiled with gcc / c++)
 CCFILES		:= \

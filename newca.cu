@@ -118,6 +118,8 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
                   dim3 & dim_len, int odd, 
 	     #ifndef GPU_RAND
 	          RandomType * g_rand, RandomType * g_new_rand,
+	     #else
+		  uint4 * states,
 	     #endif 
 		  ElementType* d_odata) 
 {
@@ -130,6 +132,17 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
 	size_t random_mem_size = random_elements*sizeof(RandomType);
 	RandomType * h_random = (RandomType*) malloc(random_mem_size);
         #endif
+	#ifdef GPU_RAND
+	// TODO: only for debug test some randoms...
+	// delete this block
+	uint4 *gpu_element_before, *gpu_element_after;
+	int element_sz = sizeof(uint4);
+	gpu_element_before = (uint4*) malloc(element_sz);
+	gpu_element_after  = (uint4*) malloc(element_sz);
+	
+	// int element_pos = 0;
+	cudaMemcpy(gpu_element_before, states, element_sz, cudaMemcpyDeviceToHost);
+	#endif
 	while(restart_cnt < max_restart)
 	{
 		caKernel<<< grid, threads >>>( d_idata, d_rot, weights, 
@@ -139,6 +152,8 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
                                        dim_len, odd,
  	#ifndef GPU_RAND
 				       g_rand, g_new_rand,
+	#else
+				       states,
 	#endif 
 				       d_odata);
 	#ifndef GPU_RAND
@@ -160,6 +175,13 @@ void start_kernel(const t_params * params, dim3 & grid, dim3 & threads, ElementT
 		fprintf(stderr, "Restarting...\n");
 		restart_cnt++;
 	}
+	#ifdef GPU_RAND
+	// TODO: This delete too
+	cutilSafeCall(cudaMemcpy(gpu_element_after, states, element_sz, cudaMemcpyDeviceToHost));
+	cout << *gpu_element_before << "->" << *gpu_element_after << endl;
+	free(gpu_element_before);
+	free(gpu_element_after);
+	#endif
 	#ifndef GPU_RAND
 	free(h_random);
 	#endif
@@ -226,7 +248,8 @@ runCA( int argc, char** argv)
     RandomType * h_random = (RandomType*) malloc(random_mem_size);
     generate_rnd(h_random, random_elements);
     #else
-    InitRandomGPU(time(NULL), random_elements);
+    uint4 * states = 0;
+    states = InitRandomGPU(time(NULL), random_elements);
     #endif
     float * h_weights = (float*) malloc(weight_size);
     memset(h_weights, 0, weight_size);
@@ -360,6 +383,8 @@ runCA( int argc, char** argv)
         save_bmp(h_idata, Coord(dim_len.x, dim_len.y, dim_len.z), filename);
     }
 
+    time_t start_time = time(NULL);
+
   #ifdef _MEM_DEBUG
     size_t err_sz = 6*sizeof(int);
     int * h_error = (int*) malloc(err_sz);
@@ -404,6 +429,8 @@ runCA( int argc, char** argv)
                   dim_len, 0,
 	     #ifndef GPU_RAND 
 		  d_random, d_random2,
+	     #else
+		  states,
 	     #endif
 		  d_odata);
 
@@ -449,6 +476,8 @@ runCA( int argc, char** argv)
                   dim_len, 1, 
 	     #ifndef GPU_RAND
 		  d_random2, d_random,
+	     #else
+		  states,
 	     #endif 
 		  d_idata);
 
@@ -497,7 +526,7 @@ runCA( int argc, char** argv)
               #endif
         	sprintf(str_buf, "%i\t%i\n", (i+1), cnt);
         	Log(params, str_buf);
-        	printf("%s", str_buf);
+        	printf("%ld\t%s", time(NULL)-start_time, str_buf);
               #ifdef VERBOSE
                 Log(params, "Saving... ");
               #endif
@@ -578,10 +607,12 @@ runCA( int argc, char** argv)
 //    free( str_buf);
     
     delete [] str_buf;
-    CleanRandomGPU();
+
     cutilSafeCall(cudaFree(d_idata));
 #ifndef GPU_RAND
     cutilSafeCall(cudaFree(d_random));
+#else
+    cutilSafeCall(cudaFree(states));
 #endif
     //cutilSafeCall(cudaFreeArray(d_weights));
     cutilSafeCall(cudaFree(d_rotability_even));

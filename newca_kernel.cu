@@ -180,6 +180,8 @@ int * error,
 const dim3 dim_len, const int odd, 
 #ifndef GPU_RAND
 const RandomType* g_rand, RandomType * g_new_rand,
+#else
+uint4 * states,
 #endif 
 ElementType* g_nsys) 
 {
@@ -364,7 +366,7 @@ ElementType* g_nsys)
     #ifndef GPU_RAND
     RandomType rnd = g_rand[block_num];
     #else
-    RandomType rnd = randGPU(block_num);
+    RandomType rnd = randGPU(block_num, states);
     //g_new_rand[block_num] = randGPU(rnd);
     #endif
     choosen_rot = chooseRot(energies, 
